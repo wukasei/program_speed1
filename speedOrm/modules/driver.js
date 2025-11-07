@@ -1,5 +1,5 @@
 import { DataTypes } from 'sequelize';
-import sequelize from '../database.js'; // шлях до database.js
+import sequelize from '../database.js'; 
 
 const Driver = sequelize.define('Driver', {
   driver_id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
@@ -10,8 +10,8 @@ const Driver = sequelize.define('Driver', {
   email: { type: DataTypes.STRING, allowNull: false },
   phone: { type: DataTypes.STRING, allowNull: false }
 }, {
-  tableName: 'driver',  // точна назва таблиці в MySQL
-  timestamps: false      // якщо немає createdAt/updatedAt
+  tableName: 'driver', 
+  timestamps: false      
 });
 
 export default Driver;

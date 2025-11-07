@@ -1,6 +1,6 @@
 import { DataTypes } from 'sequelize';
 import sequelize from '../database.js';
-import Client from './client.js'; // шлях до Client
+import Client from './client.js'; 
 
 const Order = sequelize.define('Order', {
   order_id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
@@ -18,8 +18,5 @@ const Order = sequelize.define('Order', {
   timestamps: false
 });
 
-// Встановлюємо зв’язок
-Order.belongsTo(Client, { foreignKey: 'client_id' });
-Client.hasMany(Order, { foreignKey: 'client_id' });
 
 export default Order;
