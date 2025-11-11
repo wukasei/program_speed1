@@ -225,8 +225,6 @@ async function averageUpdateTime(conn, table, ids, repeats) {
 }
 
 
-
-
 // -------------------- DELETE --------------------
 async function testRawDelete(conn, table, id) {
     const start = performance.now();
@@ -307,8 +305,8 @@ async function menu() {
                     for (const id of insertedIds) {
                         updateTimes.push(await testRawUpdate(conn, table, id));
                     }
-                    const avgUpdate = updateTimes.reduce((a,b)=>a+b,0)/updateTimes.length;
-                    console.log(`Average UPDATE time for ${table}: ${avgUpdate.toFixed(3)} ms`);
+                    console.log(`\nUpdating inserted records in ${table}...`);
+                    await averageUpdateTime(conn, table, insertedIds, 5);
 
                     console.log(`\nDeleting inserted records from ${table}...`);
                     await averageDeleteTime(conn, table, insertedIds);

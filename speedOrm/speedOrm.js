@@ -42,7 +42,7 @@ async function testOrmSelect(tableName, limit) {
     if (isNaN(limit) || limit <= 0) limit = 10;
     
     const { Model } = models[tableName];
-    await Model.findAll({ limit, raw: true });
+    const result = await Model.findAll({ limit, raw: true });
 
     const end = performance.now();
     const time = end - start;
