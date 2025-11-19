@@ -46,6 +46,8 @@ async function testRawJoin(type, limit) {
           c.name_ AS client_name,
           CONCAT(d.first_name, ' ', d.last_name) AS driver_name,
           v.registration_number AS vehicle,
+          td.trip_id as tripdetails,
+          tl.login_id as triplog,
           o.route_from,
           o.route_to,
           o.order_status
@@ -53,6 +55,8 @@ async function testRawJoin(type, limit) {
         ${type} JOIN client c ON o.client_id = c.client_id
         ${type} JOIN driver d ON o.driver_id = d.driver_id
         ${type} JOIN vehicle v ON o.vehicle_id = v.vehicle_id
+        ${type} JOIN tripdetails td ON o.order_id = td.order_id
+        ${type} JOIN triplog tl ON o.order_id = tl.order_id
         LIMIT ${limit};
     `);
 

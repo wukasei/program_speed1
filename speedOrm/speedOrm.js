@@ -36,13 +36,15 @@ const models = {
 export { models };
 
 // -------------------- SELECT (ORM) --------------------
-async function testOrmSelect(tableName, limit) {
+async function testOrmSelect(tableName, limit, include) {
     const start = performance.now();
     limit = parseInt(limit);
     if (isNaN(limit) || limit <= 0) limit = 10;
     
     const { Model } = models[tableName];
-    const result = await Model.findAll({ limit, raw: true });
+    const results = await Model.findAll({ limit,
+        include
+    });
 
     const end = performance.now();
     const time = end - start;
@@ -51,17 +53,61 @@ async function testOrmSelect(tableName, limit) {
 }
 
 async function averageSelectAllTablesORM(limit, repeats) {
-    const tables = ['client', 'driver', 'vehicle', 'order', 'tripdetails'];
+    const tables = [
+        {
+            model:'client',
+            include: [
+                {model: Order}
+            ]
+        }, 
+        {
+            model:'driver'
+        }, 
+        {
+            model:'vehicle'
+        },
+        {
+          model:'order',
+          include: [
+            { model: Client },
+            { model: Driver },
+            { model: Vehicle },
+            { model: TripLog },
+            { model: TripDetails },
+            ]
+        }, 
+        {
+            model: 'tripdetails',
+            include: [
+                { 
+                    model: Order,
+                    // include: [
+                    //     { model: Client },
+                    //     { model: Driver },
+                    //     { model: Vehicle },
+                    // ]
+                },
+            ],
+        },
+        {
+            model: 'triplog',
+            include: [
+                { model: Order },
+            ],
+        }
+
+    ];
     const results = [];
 
     for (const table of tables) {
+        console.log(table);
         const times = [];
         for (let i = 0; i < repeats; i++) {
-            times.push(await testOrmSelect(table, limit));
+            times.push(await testOrmSelect(table.model, limit, table.include));
         }
         const avg = times.reduce((a, b) => a + b, 0) / times.length;
-        results.push({ table, avg });
-        console.log(`Average SELECT time for ${table} (ORM): ${avg.toFixed(3)} ms`);
+        results.push({ table:table.model, avg });
+        console.log(`Average SELECT time for ${table.model} (ORM): ${avg.toFixed(3)} ms`);
     }
 
     console.log('\nSummary SELECT (ORM):');
@@ -69,61 +115,61 @@ async function averageSelectAllTablesORM(limit, repeats) {
 }
 
 // -------------------- JOIN (ORM) --------------------
-async function testOrmJoin(type, limit) {
-    const start = performance.now();
+// async function testOrmJoin(type, limit) {
+//     const start = performance.now();
 
-    limit = parseInt(limit);
-    if (isNaN(limit) || limit <= 0) limit = 10;
+//     limit = parseInt(limit);
+//     if (isNaN(limit) || limit <= 0) limit = 10;
 
-    const joinType = type.toUpperCase();
+//     const joinType = type.toUpperCase();
 
-    await Order.findAll({
-        attributes: [
-            'order_id',
-            [sequelize.col('Client.name_'), 'client_name'],
-            [sequelize.literal("CONCAT(Driver.first_name, ' ', Driver.last_name)"), 'driver_name'],
-            [sequelize.col('Vehicle.registration_number'), 'vehicle'],
-            'route_from',
-            'route_to',
-            'order_status'
-        ],
-        include: [
-            {
-                model: Client,
-                attributes: [],
-                required: joinType === 'INNER', 
-                joinType                    
-            },
-            {
-                model: Driver,
-                attributes: [],
-                required: joinType === 'INNER',
-                joinType
-            },
-            {
-                model: Vehicle,
-                attributes: [],
-                required: joinType === 'INNER',
-                joinType
-            }
-        ],
-        limit,
-        raw: true
-    });
+//     await Order.findAll({
+//         attributes: [
+//             'order_id',
+//             [sequelize.col('Client.name_'), 'client_name'],
+//             [sequelize.literal("CONCAT(Driver.first_name, ' ', Driver.last_name)"), 'driver_name'],
+//             [sequelize.col('Vehicle.registration_number'), 'vehicle'],
+//             'route_from',
+//             'route_to',
+//             'order_status'
+//         ],
+//         include: [
+//             {
+//                 model: Client,
+//                 attributes: [],
+//                 required: joinType === 'INNER', 
+//                 joinType                    
+//             },
+//             {
+//                 model: Driver,
+//                 attributes: [],
+//                 required: joinType === 'INNER',
+//                 joinType
+//             },
+//             {
+//                 model: Vehicle,
+//                 attributes: [],
+//                 required: joinType === 'INNER',
+//                 joinType
+//             }
+//         ],
+//         limit,
+//         raw: true
+//     });
 
-    const end = performance.now();
-    console.log(`${joinType} JOIN (ORM) | LIMIT ${limit} | Time: ${(end - start).toFixed(3)} ms`);
-    return end - start;
-}
+//     const end = performance.now();
+//     console.log(`${joinType} JOIN (ORM) | LIMIT ${limit} | Time: ${(end - start).toFixed(3)} ms`);
+//     return end - start;
+// }
 
-async function averageJoinTimeORM(type, limit, repeats) {
-    const times = [];
-    for (let i = 0; i < repeats; i++) {
-        times.push(await testOrmJoin(type, limit));
-    }
-    const avg = times.reduce((a, b) => a + b, 0) / times.length;
-    console.log(`Average ${type} JOIN time (ORM) (${repeats} times): ${avg.toFixed(3)} ms`);
-}
+// async function averageJoinTimeORM(type, limit, repeats) {
+//     const times = [];
+//     for (let i = 0; i < repeats; i++) {
+//         times.push(await testOrmJoin(type, limit));
+//     }
+//     const avg = times.reduce((a, b) => a + b, 0) / times.length;
+//     console.log(`Average ${type} JOIN time (ORM) (${repeats} times): ${avg.toFixed(3)} ms`);
+// }
 
 // -------------------- INSERT (ORM) --------------------
 async function testOrmInsert(conn, table) {
@@ -328,8 +374,7 @@ async function menuORM() {
     while (!exit) {
         console.log('\n=== Database Performance Test Menu (ORM Only) ===');
         console.log('1. SELECT test (ORM)');
-        console.log('2. JOIN test (ORM)');
-        console.log('3. INSERT -> UPDATE -> DELETE test (ORM)');
+        console.log('2. INSERT -> UPDATE -> DELETE test (ORM)');
         console.log('0. Exit');
 
         const choice = await ask('Choose an option: ');
@@ -338,23 +383,23 @@ async function menuORM() {
             case '1': {
                 const limitInput = await ask('Enter LIMIT for SELECT (ORM): ');
                 const limit = parseInt(limitInput);
-                await averageSelectAllTablesORM(isNaN(limit) ? 10 : limit, 5);
+                await averageSelectAllTablesORM(isNaN(limit) ? 10 : limit, 100);
                 break;
             }
 
-            case '2': {
-                let joinType = (await ask('Enter JOIN type (INNER/LEFT/RIGHT): ')).trim().toUpperCase();
-                const allowed = ['INNER', 'LEFT', 'RIGHT'];
-                if (!allowed.includes(joinType)) {
-                    console.log(' Invalid JOIN type. Using default INNER JOIN.');
-                    joinType = 'INNER';
-                }
+            // case '2': {
+            //     let joinType = (await ask('Enter JOIN type (INNER/LEFT/RIGHT): ')).trim().toUpperCase();
+            //     const allowed = ['INNER', 'LEFT', 'RIGHT'];
+            //     if (!allowed.includes(joinType)) {
+            //         console.log(' Invalid JOIN type. Using default INNER JOIN.');
+            //         joinType = 'INNER';
+            //     }
 
-                const limitInput = await ask('Enter LIMIT for JOIN (ORM): ');
-                const limit = parseInt(limitInput);
-                await averageJoinTimeORM(joinType, isNaN(limit) ? 10 : limit, 5);
-                break;
-            }
+            //     const limitInput = await ask('Enter LIMIT for JOIN (ORM): ');
+            //     const limit = parseInt(limitInput);
+            //     await averageJoinTimeORM(joinType, isNaN(limit) ? 10 : limit, 5);
+            //     break;
+            //}
 
             case '3': {
                 await runInsertUpdateDeleteTestORM(rl, ask);
