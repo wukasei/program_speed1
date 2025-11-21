@@ -1,6 +1,12 @@
 import pool from './database.js';
 import { performance } from 'perf_hooks';
 import readline from 'readline';
+import fs from 'fs/promises';
+
+async function loadFromJson(filePath) {
+    const data = await fs.readFile(filePath, 'utf-8');
+    return JSON.parse(data);
+}
 
 
 // -------------------- SELECT --------------------
@@ -15,8 +21,9 @@ async function testRawSelect(table, limit) {
     console.log(`SELECT ${table} | LIMIT ${limit} | Time: ${(end - start).toFixed(3)} ms`);
     return end - start;
 }
+
 async function averageSelectAllTables(limit, repeats) {
-    const tables = ['client', 'driver', 'vehicle', '`order`', 'tripdetails'];
+    const tables = ['client', 'driver', 'vehicle', '`order`', 'tripdetails', 'triplog'];
     const results = [];
 
     for (const table of tables) {
@@ -25,12 +32,21 @@ async function averageSelectAllTables(limit, repeats) {
             times.push(await testRawSelect(table, limit));
         }
         const avg = times.reduce((a, b) => a + b, 0) / times.length;
-        results.push({ table, avg });
-        console.log(`Average SELECT time for ${table}: ${avg.toFixed(3)} ms`);
+        const min = Math.min(...times);
+        const max = Math.max(...times);
+
+        results.push({ table, avg, min, max });
+
+        console.log(`\n${table.toUpperCase()} results:`);
+        console.log(`  Average: ${avg.toFixed(3)} ms`);
+        console.log(`  Minimum: ${min.toFixed(3)} ms`);
+        console.log(`  Maximum: ${max.toFixed(3)} ms`);
     }
 
     console.log('\nSummary SELECT:');
-    results.forEach(r => console.log(`${r.table.padEnd(12)} | Average: ${r.avg.toFixed(3)} ms`));
+    results.forEach(r =>
+        console.log(`${r.table.padEnd(12)} | Avg: ${r.avg.toFixed(3)} ms | Min: ${r.min.toFixed(3)} ms | Max: ${r.max.toFixed(3)} ms`)
+    );
 }
 
 // -------------------- JOIN --------------------
@@ -72,7 +88,13 @@ async function averageJoinTime(type, limit, repeats) {
         times.push(await testRawJoin(type, limit));
     }
     const avg = times.reduce((a, b) => a + b, 0) / times.length;
-    console.log(`Average ${type} JOIN time (${repeats} times): ${avg.toFixed(3)} ms`);
+    const min = Math.min(...times);
+    const max = Math.max(...times);
+    
+    console.log(`\nRESULTS for JOIN "${type}"`);
+    console.log(`  Avg: ${avg.toFixed(3)} ms`);
+    console.log(`  Min: ${min.toFixed(3)} ms`);
+    console.log(`  Max: ${max.toFixed(3)} ms\n`);
 }
 
 // -------------------- INSERT --------------------
@@ -124,20 +146,44 @@ async function testRawInsert(conn, table) {
             break;
 
         case 'order': {
-            const [clients] = await conn.execute(`SELECT client_id FROM client LIMIT 10`);
-            const [drivers] = await conn.execute(`SELECT driver_id FROM driver LIMIT 10`);
-            const [vehicles] = await conn.execute(`SELECT vehicle_id FROM vehicle LIMIT 10`);
-            if (!clients.length || !drivers.length || !vehicles.length) {
-                throw new Error('No available client/driver/vehicle for order insert');
-            }
-            const clientId = clients[Math.floor(Math.random()*clients.length)].client_id;
-            const driverId = drivers[Math.floor(Math.random()*drivers.length)].driver_id;
-            const vehicleId = vehicles[Math.floor(Math.random()*vehicles.length)].vehicle_id;
+            const orders = await loadFromJson('orders.json'); // читаємо дані з JSON
+            const insertedIds = [];
+            const times = [];
 
-            [result] = await conn.execute(`
-                INSERT INTO \`order\` (client_id, driver_id, vehicle_id, route_from, route_to, planned_departure_time, planned_arrival_time, cargo_details, order_status)
-                VALUES (?, ?, ?, 'CityA', 'CityB', NOW(), DATE_ADD(NOW(), INTERVAL 2 HOUR), 'Goods', 'planned')
-            `, [clientId, driverId, vehicleId]);
+            for (const order of orders) {
+                const start = performance.now();
+
+                [result] = await conn.execute(`
+                    INSERT INTO \`order\` 
+                    (client_id, driver_id, vehicle_id, route_from, route_to, planned_departure_time, planned_arrival_time, cargo_details, order_status)
+                    VALUES (?, ?, ?, ?, ?, NOW(), DATE_ADD(NOW(), INTERVAL 2 HOUR), ?, ?)
+                `, [
+                    order.client_id,
+                    order.driver_id,
+                    order.vehicle_id,
+                    order.route_from,
+                    order.route_to,
+                    order.cargo_details,
+                    order.order_status
+                ]);
+
+                const end = performance.now();
+                const duration = end - start;
+                times.push(duration);
+
+                insertedIds.push(result.insertId);
+                console.log(`Inserted order_id ${result.insertId} | Time: ${duration.toFixed(3)} ms`);
+            }
+
+            const avg = times.reduce((a, b) => a + b, 0) / times.length;
+            const min = Math.min(...times);
+            const max = Math.max(...times);
+
+            console.log(`\nORDER INSERT RESULTS:`);
+            console.log(`Average time: ${avg.toFixed(3)} ms`);
+            console.log(`Minimum time: ${min.toFixed(3)} ms`);
+            console.log(`Maximum time: ${max.toFixed(3)} ms`);
+
             break;
         }
 
@@ -154,16 +200,23 @@ async function testRawInsert(conn, table) {
         }
 
         case 'triplog': {
-            const [trips] = await conn.execute(`SELECT trip_id FROM tripdetails LIMIT 10`);
+            // Вибираємо випадковий trip
+            const [trips] = await conn.execute(`SELECT trip_id, order_id FROM tripdetails LIMIT 10`);
             if (!trips.length) throw new Error('No available trip for triplog insert');
-            const tripId = trips[Math.floor(Math.random()*trips.length)].trip_id;
 
+            const trip = trips[Math.floor(Math.random() * trips.length)];
+            const tripId = trip.trip_id;
+            const orderId = trip.order_id;
+
+            // Вставка у triplog
             [result] = await conn.execute(`
-                INSERT INTO triplog (trip_id, log_time, status, notes)
-                VALUES (?, NOW(), 'OK', 'Test log ${uniqueSuffix}')
-            `, [tripId]);
+                INSERT INTO triplog (trip_id, order_id, actual_departure_time, actual_arrival_time, driver_comments)
+                VALUES (?, ?, NOW(), DATE_ADD(NOW(), INTERVAL 2 HOUR), ?)
+            `, [tripId, orderId, `Test log ${uniqueSuffix}`]);
+
             break;
         }
+
 
         default:
             throw new Error('Invalid table name');
@@ -185,7 +238,14 @@ async function averageInsertRaw(conn, table, repeats) {
     }
 
     const avg = times.reduce((a,b)=>a+b,0)/times.length;
-    console.log(`Average INSERT time for ${table} (${repeats} times): ${avg.toFixed(3)} ms`);
+    const min = Math.min(...times);
+    const max = Math.max(...times);
+
+    console.log(`\nRESULTS for INSERT "${table}"`);
+    console.log(`  Avg: ${avg.toFixed(3)} ms`);
+    console.log(`  Min: ${min.toFixed(3)} ms`);
+    console.log(`  Max: ${max.toFixed(3)} ms`);
+    
     return insertedIds;
 }
 
@@ -204,13 +264,17 @@ async function testRawUpdate(conn, table, id) {
         await conn.execute(`UPDATE vehicle SET status = IF(status='available','busy','available') WHERE vehicle_id = ?`, [id]);
     }
     if (table === 'order') {
-        await conn.execute(`UPDATE \`order\` SET route_from='CityX', route_to='CityY' WHERE order_id = ?`, [id]);
+        await conn.execute(`
+            UPDATE \`order\`
+            SET route_from = 'CityX', route_to = 'CityY'
+            WHERE order_id = ?
+        `, [id]);
     }
     if (table === 'tripdetails') {
         await conn.execute(`UPDATE tripdetails SET actual_trip_status='delayed' WHERE trip_id = ?`, [id]);
     }
     if (table === 'triplog') {
-        await conn.execute(`UPDATE triplog SET status='Updated', notes='Updated test log' WHERE log_id = ?`, [id]);
+        await conn.execute(`UPDATE triplog SET driver_comments='Updated test log' WHERE login_id = ?`, [id]);
     }
 
     const end = performance.now();
@@ -225,7 +289,13 @@ async function averageUpdateTime(conn, table, ids, repeats) {
         times.push(await testRawUpdate(conn, table, id)); 
     }
     const avg = times.reduce((a, b) => a + b, 0) / times.length;
-    console.log(`Average UPDATE time for ${table} (${repeats} times): ${avg.toFixed(3)} ms`);
+    const min = Math.min(...times);
+    const max = Math.max(...times);
+   
+    console.log(`\nRESULTS for UPDATE "${table}"`);
+    console.log(`  Avg: ${avg.toFixed(3)} ms`);
+    console.log(`  Min: ${min.toFixed(3)} ms`);
+    console.log(`  Max: ${max.toFixed(3)} ms`);
 }
 
 
@@ -244,7 +314,7 @@ async function testRawDelete(conn, table, id) {
     } else if (table === 'tripdetails') {
         await conn.execute(`DELETE FROM tripdetails WHERE trip_id = ?`, [id]);
     } else if (table === 'triplog') {
-        await conn.execute(`DELETE FROM triplog WHERE log_id = ?`, [id]);
+        await conn.execute(`DELETE FROM triplog WHERE login_id = ?`, [id]);
     }
 
     const end = performance.now();
@@ -257,7 +327,13 @@ async function averageDeleteTime(conn, table, ids) {
         times.push(await testRawDelete(conn, table, id));
     }
     const avg = times.reduce((a,b)=>a+b,0)/times.length;
-    console.log(`Average DELETE time for ${table}: ${avg.toFixed(3)} ms`);
+    const min = Math.min(...times);
+    const max = Math.max(...times);
+
+    console.log(`\nRESULTS for DELETE "${table}"`);
+    console.log(`  Avg: ${avg.toFixed(3)} ms`);
+    console.log(`  Min: ${min.toFixed(3)} ms`);
+    console.log(`  Max: ${max.toFixed(3)} ms`);
 }
 
 
@@ -280,18 +356,18 @@ async function menu() {
         switch(choice) {
             case '1': {
                 const limit = parseInt(await ask('Enter LIMIT for SELECT: '));
-                await averageSelectAllTables(limit, 5);
+                await averageSelectAllTables(limit, 100);
                 break;
             }
             case '2': {
                 const joinType = await ask('Enter JOIN type (INNER/LEFT/RIGHT): ');
                 const limit = parseInt(await ask('Enter LIMIT for JOIN: '));
-                await averageJoinTime(joinType.toUpperCase(), limit, 5);
+                await averageJoinTime(joinType.toUpperCase(), limit, 100);
                 break;
             }
             case '3': {
                 const table = await ask('Enter table name for INSERT/UPDATE/DELETE: ');
-                if (!['client','driver','vehicle','`order`','tripdetails','triplog'].includes(table)) {
+                if (!['client','driver','vehicle','order','tripdetails','triplog'].includes(table)) {
                     console.log('Invalid table!');
                     break;
                 }
@@ -300,19 +376,15 @@ async function menu() {
                 try {
                     await conn.beginTransaction();
 
-                    console.log(`\nInserting 100 records into ${table}...`);
                     const insertedIds = await averageInsertRaw(conn, table, 100);
-
-                    console.log(`\nUpdating inserted records in ${table}...`);
 
                     const updateTimes = [];
                     for (const id of insertedIds) {
                         updateTimes.push(await testRawUpdate(conn, table, id));
                     }
-                    console.log(`\nUpdating inserted records in ${table}...`);
-                    await averageUpdateTime(conn, table, insertedIds, 5);
+            
+                    await averageUpdateTime(conn, table, insertedIds, 100);
 
-                    console.log(`\nDeleting inserted records from ${table}...`);
                     await averageDeleteTime(conn, table, insertedIds);
 
                     await conn.rollback();

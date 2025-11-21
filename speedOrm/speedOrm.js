@@ -1,5 +1,6 @@
 import { performance } from 'perf_hooks';
 import readline from 'readline';
+import fs from 'fs';
 
 import sequelize from './database.js';
 import Client from './modules/client.js';
@@ -30,10 +31,12 @@ const models = {
     vehicle: { Model: Vehicle, idKey: 'vehicle_id' },
     order: { Model: Order, idKey: 'order_id' },
     tripdetails: { Model: TripDetails, idKey: 'trip_id' },
-    triplog: { Model: TripLog, idKey: 'log_id' },
+    triplog: { Model: TripLog, idKey: 'login_id' },
 };
 
 export { models };
+
+const orderData = JSON.parse(fs.readFileSync('../speedRaw/orders.json', 'utf8'));
 
 // -------------------- SELECT (ORM) --------------------
 async function testOrmSelect(tableName, limit, include) {
@@ -106,70 +109,22 @@ async function averageSelectAllTablesORM(limit, repeats) {
             times.push(await testOrmSelect(table.model, limit, table.include));
         }
         const avg = times.reduce((a, b) => a + b, 0) / times.length;
-        results.push({ table:table.model, avg });
-        console.log(`Average SELECT time for ${table.model} (ORM): ${avg.toFixed(3)} ms`);
+        const min = Math.min(...times);
+        const max = Math.max(...times);
+
+        results.push({ table:table.model, avg, min, max });
+        console.log(`Table: ${table.model.padEnd(12)} | Avg: ${avg.toFixed(3)} ms | Min: ${min.toFixed(3)} ms | Max: ${max.toFixed(3)} ms`);
     }
 
-    console.log('\nSummary SELECT (ORM):');
-    results.forEach(r => console.log(`${r.table.padEnd(12)} | Average: ${r.avg.toFixed(3)} ms`));
+    console.log('\n--- Summary SELECT Times (ORM) ---');
+    console.log('Table        | Average (ms) | Min (ms) | Max (ms)');
+    console.log('-------------------------------------------------');
+    results.forEach(r => {
+        console.log(
+            `${r.table.padEnd(12)} | ${r.avg.toFixed(3).padStart(12)} | ${r.min.toFixed(3).padStart(8)} | ${r.max.toFixed(3).padStart(8)}`
+        );
+    });
 }
-
-// -------------------- JOIN (ORM) --------------------
-// async function testOrmJoin(type, limit) {
-//     const start = performance.now();
-
-//     limit = parseInt(limit);
-//     if (isNaN(limit) || limit <= 0) limit = 10;
-
-//     const joinType = type.toUpperCase();
-
-//     await Order.findAll({
-//         attributes: [
-//             'order_id',
-//             [sequelize.col('Client.name_'), 'client_name'],
-//             [sequelize.literal("CONCAT(Driver.first_name, ' ', Driver.last_name)"), 'driver_name'],
-//             [sequelize.col('Vehicle.registration_number'), 'vehicle'],
-//             'route_from',
-//             'route_to',
-//             'order_status'
-//         ],
-//         include: [
-//             {
-//                 model: Client,
-//                 attributes: [],
-//                 required: joinType === 'INNER', 
-//                 joinType                    
-//             },
-//             {
-//                 model: Driver,
-//                 attributes: [],
-//                 required: joinType === 'INNER',
-//                 joinType
-//             },
-//             {
-//                 model: Vehicle,
-//                 attributes: [],
-//                 required: joinType === 'INNER',
-//                 joinType
-//             }
-//         ],
-//         limit,
-//         raw: true
-//     });
-
-//     const end = performance.now();
-//     console.log(`${joinType} JOIN (ORM) | LIMIT ${limit} | Time: ${(end - start).toFixed(3)} ms`);
-//     return end - start;
-// }
-
-// async function averageJoinTimeORM(type, limit, repeats) {
-//     const times = [];
-//     for (let i = 0; i < repeats; i++) {
-//         times.push(await testOrmJoin(type, limit));
-//     }
-//     const avg = times.reduce((a, b) => a + b, 0) / times.length;
-//     console.log(`Average ${type} JOIN time (ORM) (${repeats} times): ${avg.toFixed(3)} ms`);
-// }
 
 // -------------------- INSERT (ORM) --------------------
 async function testOrmInsert(conn, table) {
@@ -209,26 +164,23 @@ async function testOrmInsert(conn, table) {
             }, { transaction: conn });
             break;
         case 'order': {
-            const clients = await Client.findAll({ attributes: ['client_id'], limit: 10, raw: true, transaction: conn });
-            const drivers = await Driver.findAll({ attributes: ['driver_id'], limit: 10, raw: true, transaction: conn });
-            const vehicles = await Vehicle.findAll({ attributes: ['vehicle_id'], limit: 10, raw: true, transaction: conn });
-            if (!clients.length || !drivers.length || !vehicles.length) throw new Error('No available data for ORM order insert');
+            if (!orderData){
+                throw new Error('orders.json not found!');
+            }
+            for(const order of orderData){
+                result = await Model.create({
+                    client_id: order.client_id,
+                    driver_id: order.driver_id,
+                    vehicle_id: order.vehicle_id,
+                    route_from: order.route_from,
+                    route_to: order.route_to,
+                    planned_departure_time: new Date(order.planned_departure_time),
+                    planned_arrival_time: new Date(order.planned_arrival_time),
+                    cargo_details: order.cargo_details,
+                    order_status: order.order_status
+                }, { transaction: conn });
+            }
 
-            const clientId = clients[Math.floor(Math.random()*clients.length)].client_id;
-            const driverId = drivers[Math.floor(Math.random()*drivers.length)].driver_id;
-            const vehicleId = vehicles[Math.floor(Math.random()*vehicles.length)].vehicle_id;
-
-            result = await Model.create({
-                client_id: clientId,
-                driver_id: driverId,
-                vehicle_id: vehicleId,
-                route_from: 'CityA',
-                route_to: 'CityB',
-                planned_departure_time: new Date(),
-                planned_arrival_time: new Date(Date.now() + 2*60*60*1000),
-                cargo_details: 'Goods',
-                order_status: 'planned'
-            }, { transaction: conn });
             break;
         }
         case 'tripdetails': {
@@ -247,18 +199,30 @@ async function testOrmInsert(conn, table) {
             break;
         }
         case 'triplog': {
-            const trips = await TripDetails.findAll({ attributes: ['trip_id'], limit: 10, raw: true, transaction: conn });
-            if (!trips.length) throw new Error('No available trip for triplog insert (ORM)');
-            const tripId = trips[Math.floor(Math.random()*trips.length)].trip_id;
+            const trips = await TripDetails.findAll({
+                attributes: ['trip_id', 'order_id'],
+                limit: 10,
+                raw: true,
+                transaction: conn
+            });
+
+            if (!trips.length) {
+                throw new Error('No available trip for triplog insert (ORM)');
+            }
+
+            const trip = trips[Math.floor(Math.random() * trips.length)];
 
             result = await Model.create({
-                trip_id: tripId,
-                log_time: new Date(),
-                status: 'OK',
-                notes: `Test log ${uniqueSuffix}`
+                trip_id: trip.trip_id,
+                order_id: trip.order_id,
+                actual_departure_time: new Date(),
+                actual_arrival_time: new Date(Date.now() + 2 * 60 * 60 * 1000), // +2 години
+                driver_comments: `Test log ${uniqueSuffix}`
             }, { transaction: conn });
+
             break;
         }
+
         default: throw new Error('Invalid table name');
     }
 
@@ -277,7 +241,19 @@ async function averageInsertORM(conn, table, repeats) {
     }
 
     const avg = times.reduce((a,b)=>a+b,0)/times.length;
-    console.log(`Average INSERT time for ${table} (ORM) (${repeats} times): ${avg.toFixed(3)} ms`);
+    const min = Math.min(...times);
+    const max = Math.max(...times);
+
+    console.log(`\n--- INSERT (ORM) ---`);
+    console.log(`Table: ${table}`);
+    console.log(`Repetitions: ${repeats}`);
+    console.log('-----------------------------');
+    console.log(`Average time: ${avg.toFixed(3).padStart(8)} ms`);
+    console.log(`Minimum time: ${min.toFixed(3).padStart(8)} ms`);
+    console.log(`Maximum time: ${max.toFixed(3).padStart(8)} ms`);
+    // console.log(`Inserted IDs: ${insertedIds.join(', ') || 'None'}`);
+    console.log('-----------------------------');
+    
     return insertedIds.filter(id => id !== undefined);
 }
 
@@ -297,7 +273,7 @@ async function testOrmUpdate(conn, table, id) {
         }
         case 'order': updateData = { route_from: 'CityX', route_to: 'CityY' }; break;
         case 'tripdetails': updateData = { actual_trip_status: 'delayed' }; break;
-        case 'triplog': updateData = { status: 'Updated', notes: 'Updated test log (ORM)' }; break;
+        case 'triplog': updateData = { driver_comments: 'Updated test log (ORM)' }; break;
     }
 
     await Model.update(updateData, { where: { [idKey]: id }, transaction: conn });
@@ -311,7 +287,17 @@ async function averageUpdateTimeORM(conn, table, ids, repeats) {
         times.push(await testOrmUpdate(conn, table, id));
     }
     const avg = times.reduce((a, b) => a + b, 0) / times.length;
-    console.log(`Average UPDATE time for ${table} (ORM) (${repeats} times): ${avg.toFixed(3)} ms`);
+    const min = Math.min(...times);
+    const max = Math.max(...times);
+    
+    console.log(`\n--- UPDATE (ORM) ---`);
+    console.log(`Table: ${table}`);
+    console.log(`Repetitions: ${repeats}`);
+    console.log('-------------------------------');
+    console.log(`Average time: ${avg.toFixed(3).padStart(8)} ms`);
+    console.log(`Minimum time: ${min.toFixed(3).padStart(8)} ms`);
+    console.log(`Maximum time: ${max.toFixed(3).padStart(8)} ms`);
+    console.log('-------------------------------');
 }
 
 // -------------------- DELETE (ORM) --------------------
@@ -329,7 +315,17 @@ async function averageDeleteTimeORM(conn, table, ids) {
         times.push(await testOrmDelete(conn, table, id));
     }
     const avg = times.reduce((a,b)=>a+b,0)/times.length;
-    console.log(`Average DELETE time for ${table} (ORM): ${avg.toFixed(3)} ms`);
+    const min = Math.min(...times);
+    const max = Math.max(...times);
+
+    console.log(`\n--- DELETE (ORM) ---`);
+    console.log(`Table: ${table}`);
+    console.log(`Records: ${ids.length}`);
+    console.log('-------------------------------');
+    console.log(`Average time: ${avg.toFixed(3).padStart(8)} ms`);
+    console.log(`Minimum time: ${min.toFixed(3).padStart(8)} ms`);
+    console.log(`Maximum time: ${max.toFixed(3).padStart(8)} ms`);
+    console.log('-------------------------------');
 }
 
 // -------------------- Execution Wrapper (ORM) --------------------
@@ -342,13 +338,13 @@ async function runInsertUpdateDeleteTestORM(rl, ask) {
 
     try {
         await sequelize.transaction(async (t) => { 
-            console.log(`\n[ORM] Inserting 100 records into ${table}...`);
+            // console.log(`\n[ORM] Inserting 100 records into ${table}...`);
             const insertedIds = await averageInsertORM(t, table, 100);
 
-            console.log(`\n[ORM] Updating inserted records in ${table}...`);
+            // console.log(`\n[ORM] Updating inserted records in ${table}...`);
             await averageUpdateTimeORM(t, table, insertedIds, insertedIds.length);
 
-            console.log(`\n[ORM] Deleting inserted records from ${table}...`);
+            // console.log(`\n[ORM] Deleting inserted records from ${table}...`);
             await averageDeleteTimeORM(t, table, insertedIds);
 
             console.log('For a clean database, forcing transaction rollback...');
@@ -401,7 +397,7 @@ async function menuORM() {
             //     break;
             //}
 
-            case '3': {
+            case '2': {
                 await runInsertUpdateDeleteTestORM(rl, ask);
                 break;
             }
