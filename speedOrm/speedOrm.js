@@ -100,6 +100,7 @@ async function averageSelectAllTablesORM(limit, repeats) {
         }
 
     ];
+
     const results = [];
 
     for (const table of tables) {
@@ -338,15 +339,9 @@ async function runInsertUpdateDeleteTestORM(rl, ask) {
 
     try {
         await sequelize.transaction(async (t) => { 
-            // console.log(`\n[ORM] Inserting 100 records into ${table}...`);
             const insertedIds = await averageInsertORM(t, table, 100);
-
-            // console.log(`\n[ORM] Updating inserted records in ${table}...`);
             await averageUpdateTimeORM(t, table, insertedIds, insertedIds.length);
-
-            // console.log(`\n[ORM] Deleting inserted records from ${table}...`);
             await averageDeleteTimeORM(t, table, insertedIds);
-
             console.log('For a clean database, forcing transaction rollback...');
             throw new Error('Forced Rollback');
         });
