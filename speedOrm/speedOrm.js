@@ -252,7 +252,6 @@ async function averageInsertORM(conn, table, repeats) {
     console.log(`Average time: ${avg.toFixed(3).padStart(8)} ms`);
     console.log(`Minimum time: ${min.toFixed(3).padStart(8)} ms`);
     console.log(`Maximum time: ${max.toFixed(3).padStart(8)} ms`);
-    // console.log(`Inserted IDs: ${insertedIds.join(', ') || 'None'}`);
     console.log('-----------------------------');
     
     return insertedIds.filter(id => id !== undefined);
@@ -377,20 +376,6 @@ async function menuORM() {
                 await averageSelectAllTablesORM(isNaN(limit) ? 10 : limit, 100);
                 break;
             }
-
-            // case '2': {
-            //     let joinType = (await ask('Enter JOIN type (INNER/LEFT/RIGHT): ')).trim().toUpperCase();
-            //     const allowed = ['INNER', 'LEFT', 'RIGHT'];
-            //     if (!allowed.includes(joinType)) {
-            //         console.log(' Invalid JOIN type. Using default INNER JOIN.');
-            //         joinType = 'INNER';
-            //     }
-
-            //     const limitInput = await ask('Enter LIMIT for JOIN (ORM): ');
-            //     const limit = parseInt(limitInput);
-            //     await averageJoinTimeORM(joinType, isNaN(limit) ? 10 : limit, 5);
-            //     break;
-            //}
 
             case '2': {
                 await runInsertUpdateDeleteTestORM(rl, ask);

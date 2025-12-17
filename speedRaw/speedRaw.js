@@ -200,7 +200,6 @@ async function testRawInsert(conn, table) {
         }
 
         case 'triplog': {
-            // Вибираємо випадковий trip
             const [trips] = await conn.execute(`SELECT trip_id, order_id FROM tripdetails LIMIT 10`);
             if (!trips.length) throw new Error('No available trip for triplog insert');
 
@@ -208,7 +207,6 @@ async function testRawInsert(conn, table) {
             const tripId = trip.trip_id;
             const orderId = trip.order_id;
 
-            // Вставка у triplog
             [result] = await conn.execute(`
                 INSERT INTO triplog (trip_id, order_id, actual_departure_time, actual_arrival_time, driver_comments)
                 VALUES (?, ?, NOW(), DATE_ADD(NOW(), INTERVAL 2 HOUR), ?)
