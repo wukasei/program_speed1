@@ -172,7 +172,7 @@ async function testRawInsert(conn, table) {
                 times.push(duration);
 
                 insertedIds.push(result.insertId);
-                console.log(`Inserted order_id ${result.insertId} | Time: ${duration.toFixed(3)} ms`);
+                //console.log(`Inserted order_id ${result.insertId} | Time: ${duration.toFixed(3)} ms`);
             }
 
             const avg = times.reduce((a, b) => a + b, 0) / times.length;
